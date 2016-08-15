@@ -286,6 +286,10 @@ func UnsecuredKubeletConfig(s *options.KubeletServer) (*KubeletConfig, error) {
 		EvictionConfig:        evictionConfig,
 		PodsPerCore:           int(s.PodsPerCore),
 		ProtectKernelDefaults: s.ProtectKernelDefaults,
+		NodeIP:          net.ParseIP(s.NodeIP),
+		EvictionConfig:  evictionConfig,
+		PodsPerCore:     int(s.PodsPerCore),
+		EnableLogServer: s.EnableLogServer,
 	}, nil
 }
 
@@ -639,6 +643,7 @@ func SimpleKubelet(client *clientset.Clientset,
 		EvictionConfig:               evictionConfig,
 		PodsPerCore:                  podsPerCore,
 		ProtectKernelDefaults:        false,
+		EnableLogServer:              true,
 	}
 	return &kcfg
 }
@@ -757,7 +762,15 @@ func RunKubelet(kcfg *KubeletConfig) error {
 
 func startKubelet(k KubeletBootstrap, podCfg *config.PodConfig, kc *KubeletConfig) {
 	// start the kubelet
-	go wait.Until(func() { k.Run(podCfg.Updates()) }, 0, wait.NeverStop)
+	go wait.Until(func() {
+		if kc.EnableLogServer {
+			kl := k.(*Kubelet)
+			if kl.logServer == nil {
+				kl.logServer = http.StripPrefix("/logs/", http.FileServer(http.Dir("/var/log/")))
+			}
+		}
+		k.Run(podCfg.Updates())
+	}, 0, wait.NeverStop)
 
 	// start the kubelet server
 	if kc.EnableServer {
@@ -893,6 +906,7 @@ type KubeletConfig struct {
 	Options                    []kubelet.Option
 
 	ProtectKernelDefaults bool
+	EnableLogServer            bool
 }
 
 func CreateAndInitKubelet(kc *KubeletConfig) (k KubeletBootstrap, pc *config.PodConfig, err error) {
